@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(cmake:*)",
+      "Bash(ctest:*)",
+      "Bash(./basic_usage.exe)",
+      "Bash(./octree_benchmarks.exe --benchmark_filter=BM_Insert/100 --benchmark_min_time=0.1s)",
+      "Bash(./octree_benchmarks.exe --benchmark_filter=BM_VoxelWorld --benchmark_min_time=0.5s)",
+      "Bash(./octree_benchmarks.exe --benchmark_filter=\"BM_VoxelWorld_LoadChunks|BM_VoxelWorld_MemoryComparison\" --benchmark_repetitions=3 --benchmark_report_aggregates_only=true)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
