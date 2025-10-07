@@ -242,8 +242,8 @@ BENCHMARK(BM_VoxelWorld_PlayerView)
     ->Arg(2)->Arg(4)->Arg(8)->Arg(16)
     ->Unit(benchmark::kMicrosecond);
 
-// Benchmark: Ray casting for block interaction
-static void BM_VoxelWorld_RayCast(benchmark::State& state) {
+// Benchmark: Ray casting for block interaction (first hit)
+static void BM_VoxelWorld_RaycastFirst(benchmark::State& state) {
     ChunkConfig config;
     std::mt19937 rng(42);
 
@@ -276,20 +276,130 @@ static void BM_VoxelWorld_RayCast(benchmark::State& state) {
 
     // Player looking at blocks
     Point3D<double> playerPos(100.0, 30.0, 100.0);
+    Point3D<double> direction(1.0, 0.0, 0.0);
+    Ray3D<double> ray(playerPos, direction);
 
-    std::vector<std::pair<Point3D<double>, VoxelBlock>> nearbyBlocks;
+    std::pair<Point3D<double>, VoxelBlock> hit;
+    int hitCount = 0;
 
     for (auto _ : state) {
-        nearbyBlocks.clear();
-        // Query blocks in reach (5 blocks)
-        voxelWorld.queryRadius(playerPos, 5.0, nearbyBlocks);
-        benchmark::DoNotOptimize(nearbyBlocks);
+        if (voxelWorld.raycastFirst(ray, 10.0, hit)) {
+            ++hitCount;
+        }
+        benchmark::DoNotOptimize(hit);
     }
 
-    state.counters["BlocksInReach"] = benchmark::Counter(
-        static_cast<double>(nearbyBlocks.size()));
+    state.counters["HitRate"] = benchmark::Counter(
+        static_cast<double>(hitCount) / state.iterations());
 }
-BENCHMARK(BM_VoxelWorld_RayCast)->Unit(benchmark::kMicrosecond);
+BENCHMARK(BM_VoxelWorld_RaycastFirst)->Unit(benchmark::kMicrosecond);
+
+// Benchmark: Ray casting all blocks along ray
+static void BM_VoxelWorld_RaycastAll(benchmark::State& state) {
+    ChunkConfig config;
+    std::mt19937 rng(42);
+
+    int worldSizeX = config.chunkSizeX * config.worldChunksX;
+    int worldSizeY = config.chunkSizeY * config.worldChunksY;
+    int worldSizeZ = config.chunkSizeZ * config.worldChunksZ;
+
+    AABB<double> worldBounds(
+        Point3D<double>(0.0, 0.0, 0.0),
+        Point3D<double>(
+            static_cast<double>(worldSizeX),
+            static_cast<double>(worldSizeY),
+            static_cast<double>(worldSizeZ)
+        )
+    );
+
+    Octree<double, VoxelBlock> voxelWorld(worldBounds, 64, 10);
+
+    // Load all chunks
+    for (int cx = 0; cx < config.worldChunksX; ++cx) {
+        for (int cy = 0; cy < config.worldChunksY; ++cy) {
+            for (int cz = 0; cz < config.worldChunksZ; ++cz) {
+                auto blocks = generateChunk(cx, cy, cz, config, rng);
+                for (const auto& [pos, block] : blocks) {
+                    voxelWorld.insert(pos, block);
+                }
+            }
+        }
+    }
+
+    Point3D<double> playerPos(128.0, 32.0, 128.0);
+    Point3D<double> direction(1.0, 0.0, 0.0);
+    Ray3D<double> ray(playerPos, direction);
+
+    std::vector<std::pair<Point3D<double>, VoxelBlock>> hits;
+
+    for (auto _ : state) {
+        hits.clear();
+        voxelWorld.raycastAll(ray, 50.0, hits);
+        benchmark::DoNotOptimize(hits);
+    }
+
+    state.counters["BlocksHit"] = benchmark::Counter(
+        static_cast<double>(hits.size()));
+}
+BENCHMARK(BM_VoxelWorld_RaycastAll)->Unit(benchmark::kMicrosecond);
+
+// Benchmark: Multiple raycasts (player looking around)
+static void BM_VoxelWorld_MultipleRaycasts(benchmark::State& state) {
+    const int numRays = static_cast<int>(state.range(0));
+    ChunkConfig config;
+    std::mt19937 rng(42);
+
+    int worldSizeX = config.chunkSizeX * config.worldChunksX;
+    int worldSizeY = config.chunkSizeY * config.worldChunksY;
+    int worldSizeZ = config.chunkSizeZ * config.worldChunksZ;
+
+    AABB<double> worldBounds(
+        Point3D<double>(0.0, 0.0, 0.0),
+        Point3D<double>(
+            static_cast<double>(worldSizeX),
+            static_cast<double>(worldSizeY),
+            static_cast<double>(worldSizeZ)
+        )
+    );
+
+    Octree<double, VoxelBlock> voxelWorld(worldBounds, 64, 10);
+
+    // Load central chunks
+    for (int cx = 7; cx < 9; ++cx) {
+        for (int cy = 1; cy < 3; ++cy) {
+            for (int cz = 7; cz < 9; ++cz) {
+                auto blocks = generateChunk(cx, cy, cz, config, rng);
+                for (const auto& [pos, block] : blocks) {
+                    voxelWorld.insert(pos, block);
+                }
+            }
+        }
+    }
+
+    Point3D<double> playerPos(128.0, 32.0, 128.0);
+
+    // Generate rays in different directions
+    std::vector<Ray3D<double>> rays;
+    for (int i = 0; i < numRays; ++i) {
+        double angle = (2.0 * 3.14159 * i) / numRays;
+        Point3D<double> dir(std::cos(angle), 0.0, std::sin(angle));
+        rays.emplace_back(playerPos, dir);
+    }
+
+    std::pair<Point3D<double>, VoxelBlock> hit;
+
+    for (auto _ : state) {
+        for (const auto& ray : rays) {
+            voxelWorld.raycastFirst(ray, 10.0, hit);
+            benchmark::DoNotOptimize(hit);
+        }
+    }
+
+    state.counters["RaysPerFrame"] = benchmark::Counter(static_cast<double>(numRays));
+}
+BENCHMARK(BM_VoxelWorld_MultipleRaycasts)
+    ->Arg(1)->Arg(10)->Arg(50)->Arg(100)
+    ->Unit(benchmark::kMicrosecond);
 
 // Benchmark: Neighbor finding for lighting propagation
 static void BM_VoxelWorld_LightingPropagation(benchmark::State& state) {

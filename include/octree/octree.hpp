@@ -38,6 +38,51 @@ struct Point3D {
     bool operator!=(const Point3D& other) const {
         return !(*this == other);
     }
+
+    Point3D operator+(const Point3D& other) const {
+        return Point3D(x + other.x, y + other.y, z + other.z);
+    }
+
+    Point3D operator-(const Point3D& other) const {
+        return Point3D(x - other.x, y - other.y, z - other.z);
+    }
+
+    Point3D operator*(T scalar) const {
+        return Point3D(x * scalar, y * scalar, z * scalar);
+    }
+
+    T dot(const Point3D& other) const {
+        return x * other.x + y * other.y + z * other.z;
+    }
+
+    T length() const {
+        return std::sqrt(x * x + y * y + z * z);
+    }
+
+    Point3D normalized() const {
+        T len = length();
+        if (len > 0) {
+            return Point3D(x / len, y / len, z / len);
+        }
+        return *this;
+    }
+};
+
+/**
+ * 3D Ray representation
+ */
+template<typename T>
+struct Ray3D {
+    Point3D<T> origin;
+    Point3D<T> direction;  // Should be normalized
+
+    Ray3D() = default;
+    Ray3D(const Point3D<T>& origin_, const Point3D<T>& direction_)
+        : origin(origin_), direction(direction_.normalized()) {}
+
+    Point3D<T> at(T t) const {
+        return origin + direction * t;
+    }
 };
 
 /**
@@ -76,6 +121,33 @@ struct AABB {
         T dy = std::max({min.y - point.y, T(0), point.y - max.y});
         T dz = std::max({min.z - point.z, T(0), point.z - max.z});
         return dx * dx + dy * dy + dz * dz;
+    }
+
+    /**
+     * Ray-AABB intersection test
+     * Returns true if ray intersects this box, and sets tMin/tMax to intersection parameters
+     * Based on the slab method
+     */
+    bool intersectsRay(const Ray3D<T>& ray, T& tMin, T& tMax) const {
+        T t1 = (min.x - ray.origin.x) / (ray.direction.x + std::numeric_limits<T>::epsilon());
+        T t2 = (max.x - ray.origin.x) / (ray.direction.x + std::numeric_limits<T>::epsilon());
+
+        tMin = std::min(t1, t2);
+        tMax = std::max(t1, t2);
+
+        t1 = (min.y - ray.origin.y) / (ray.direction.y + std::numeric_limits<T>::epsilon());
+        t2 = (max.y - ray.origin.y) / (ray.direction.y + std::numeric_limits<T>::epsilon());
+
+        tMin = std::max(tMin, std::min(t1, t2));
+        tMax = std::min(tMax, std::max(t1, t2));
+
+        t1 = (min.z - ray.origin.z) / (ray.direction.z + std::numeric_limits<T>::epsilon());
+        t2 = (max.z - ray.origin.z) / (ray.direction.z + std::numeric_limits<T>::epsilon());
+
+        tMin = std::max(tMin, std::min(t1, t2));
+        tMax = std::min(tMax, std::max(t1, t2));
+
+        return tMax >= tMin && tMax >= 0;
     }
 };
 
@@ -228,6 +300,36 @@ public:
         MemoryStats stats;
         getMemoryStatsImpl(root_.get(), stats);
         return stats;
+    }
+
+    /**
+     * Raycast to find the first point hit by a ray
+     * @param ray The ray to cast
+     * @param maxDistance Maximum distance to search
+     * @param result Output parameter for the hit point and data
+     * @return true if a point was hit
+     */
+    bool raycastFirst(const Ray3D<T>& ray,
+                      T maxDistance,
+                      std::pair<Point3D<T>, DataType>& result) const {
+        T closestDistance = maxDistance;
+        bool found = false;
+
+        raycastFirstImpl(root_.get(), ray, maxDistance, closestDistance, result, found);
+
+        return found;
+    }
+
+    /**
+     * Raycast to find all points hit by a ray
+     * @param ray The ray to cast
+     * @param maxDistance Maximum distance to search
+     * @param results Vector to store hit points and data
+     */
+    void raycastAll(const Ray3D<T>& ray,
+                    T maxDistance,
+                    std::vector<std::pair<Point3D<T>, DataType>>& results) const {
+        raycastAllImpl(root_.get(), ray, maxDistance, results);
     }
 
 private:
@@ -450,6 +552,130 @@ private:
         if (node->subdivided) {
             for (const auto& child : node->children) {
                 getMemoryStatsImpl(child.get(), stats);
+            }
+        }
+    }
+
+    void raycastFirstImpl(const OctreeNode<T, DataType>* node,
+                          const Ray3D<T>& ray,
+                          T maxDistance,
+                          T& closestDistance,
+                          std::pair<Point3D<T>, DataType>& result,
+                          bool& found) const {
+        if (!node) return;
+
+        // Test ray-AABB intersection
+        T tMin, tMax;
+        if (!node->boundary.intersectsRay(ray, tMin, tMax)) {
+            return;
+        }
+
+        // Skip if this node is farther than our closest hit
+        if (tMin > closestDistance) {
+            return;
+        }
+
+        // Check points in this node
+        for (const auto& [point, data] : node->points) {
+            // Calculate distance from ray origin to point
+            Point3D<T> toPoint = point - ray.origin;
+            T projection = toPoint.dot(ray.direction);
+
+            // Point is behind ray origin
+            if (projection < 0) continue;
+
+            // Point is beyond max distance
+            if (projection > maxDistance) continue;
+
+            // Calculate closest point on ray to this point
+            Point3D<T> closestOnRay = ray.origin + ray.direction * projection;
+            T distanceToRay = point.distance(closestOnRay);
+
+            // Use a small epsilon for "hitting" the point
+            const T epsilon = static_cast<T>(0.5);
+            if (distanceToRay <= epsilon) {
+                if (projection < closestDistance) {
+                    closestDistance = projection;
+                    result = std::make_pair(point, data);
+                    found = true;
+                }
+            }
+        }
+
+        // Recursively check children, sorted by distance
+        if (node->subdivided) {
+            // Create array of children with their distances
+            std::array<std::pair<T, const OctreeNode<T, DataType>*>, 8> childDistances;
+            for (size_t i = 0; i < 8; ++i) {
+                if (node->children[i]) {
+                    T tMin2, tMax2;
+                    if (node->children[i]->boundary.intersectsRay(ray, tMin2, tMax2)) {
+                        childDistances[i] = {tMin2, node->children[i].get()};
+                    } else {
+                        childDistances[i] = {std::numeric_limits<T>::max(), nullptr};
+                    }
+                } else {
+                    childDistances[i] = {std::numeric_limits<T>::max(), nullptr};
+                }
+            }
+
+            // Sort by distance
+            std::sort(childDistances.begin(), childDistances.end(),
+                     [](const auto& a, const auto& b) { return a.first < b.first; });
+
+            // Traverse in front-to-back order
+            for (const auto& [dist, child] : childDistances) {
+                if (child && dist <= closestDistance) {
+                    raycastFirstImpl(child, ray, maxDistance, closestDistance, result, found);
+                }
+            }
+        }
+    }
+
+    void raycastAllImpl(const OctreeNode<T, DataType>* node,
+                        const Ray3D<T>& ray,
+                        T maxDistance,
+                        std::vector<std::pair<Point3D<T>, DataType>>& results) const {
+        if (!node) return;
+
+        // Test ray-AABB intersection
+        T tMin, tMax;
+        if (!node->boundary.intersectsRay(ray, tMin, tMax)) {
+            return;
+        }
+
+        // Skip if this node is beyond max distance
+        if (tMin > maxDistance) {
+            return;
+        }
+
+        // Check points in this node
+        for (const auto& [point, data] : node->points) {
+            // Calculate distance from ray origin to point
+            Point3D<T> toPoint = point - ray.origin;
+            T projection = toPoint.dot(ray.direction);
+
+            // Point is behind ray origin
+            if (projection < 0) continue;
+
+            // Point is beyond max distance
+            if (projection > maxDistance) continue;
+
+            // Calculate closest point on ray to this point
+            Point3D<T> closestOnRay = ray.origin + ray.direction * projection;
+            T distanceToRay = point.distance(closestOnRay);
+
+            // Use a small epsilon for "hitting" the point
+            const T epsilon = static_cast<T>(0.5);
+            if (distanceToRay <= epsilon) {
+                results.emplace_back(point, data);
+            }
+        }
+
+        // Recursively check children
+        if (node->subdivided) {
+            for (const auto& child : node->children) {
+                raycastAllImpl(child.get(), ray, maxDistance, results);
             }
         }
     }

@@ -7,7 +7,12 @@
       "Bash(./basic_usage.exe)",
       "Bash(./octree_benchmarks.exe --benchmark_filter=BM_Insert/100 --benchmark_min_time=0.1s)",
       "Bash(./octree_benchmarks.exe --benchmark_filter=BM_VoxelWorld --benchmark_min_time=0.5s)",
-      "Bash(./octree_benchmarks.exe --benchmark_filter=\"BM_VoxelWorld_LoadChunks|BM_VoxelWorld_MemoryComparison\" --benchmark_repetitions=3 --benchmark_report_aggregates_only=true)"
+      "Bash(./octree_benchmarks.exe --benchmark_filter=\"BM_VoxelWorld_LoadChunks|BM_VoxelWorld_MemoryComparison\" --benchmark_repetitions=3 --benchmark_report_aggregates_only=true)",
+      "Bash(./octree_benchmarks.exe --benchmark_filter=\"BM_VoxelWorld_Raycast\" --benchmark_min_time=0.5s)",
+      "Bash(./octree_benchmarks.exe --benchmark_filter=\"BM_VoxelWorld_MultipleRaycasts\" --benchmark_min_time=0.5s)",
+      "Bash(./raycast_example.exe)",
+      "Bash(./voxel_pathfinding.exe)",
+      "Bash(./frustum_culling.exe)"
     ],
     "deny": [],
     "ask": []

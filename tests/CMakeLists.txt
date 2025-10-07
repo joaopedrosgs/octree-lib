@@ -19,6 +19,7 @@ add_executable(octree_tests
     test_octree.cpp
     test_point.cpp
     test_aabb.cpp
+    test_raycast.cpp
 )
 
 target_link_libraries(octree_tests
