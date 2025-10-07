@@ -34,8 +34,6 @@ jobs:
 
           - name: "Windows Latest MSVC"
             os: windows-latest
-            cc: "cl"
-            cxx: "cl"
             build_type: "Release"
 
           - name: "Ubuntu Debug Build"
@@ -52,6 +50,10 @@ jobs:
         uses: jwlawson/actions-setup-cmake@v2
         with:
           cmake-version: '3.14.x'
+
+      - name: Setup MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
 
       - name: Configure CMake
         env:
