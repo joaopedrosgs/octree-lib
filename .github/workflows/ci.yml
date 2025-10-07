@@ -68,7 +68,7 @@ jobs:
         run: ctest -C ${{ matrix.config.build_type }} --output-on-failure --verbose
 
       - name: Build Examples
-        run: cmake --build build --config ${{ matrix.config.build_type }} --target basic_usage spatial_queries custom_data raycast_example voxel_pathfinding frustum_culling
+        run: cmake --build build --config ${{ matrix.config.build_type }} --target basic_usage && cmake --build build --config ${{ matrix.config.build_type }} --target spatial_queries && cmake --build build --config ${{ matrix.config.build_type }} --target custom_data && cmake --build build --config ${{ matrix.config.build_type }} --target raycast_example && cmake --build build --config ${{ matrix.config.build_type }} --target voxel_pathfinding && cmake --build build --config ${{ matrix.config.build_type }} --target frustum_culling
 
   sanitizers:
     name: Sanitizers (Ubuntu)
